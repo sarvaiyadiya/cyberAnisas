@@ -140,3 +140,24 @@ class RIPEStatClient:
         params = {"resource": f"AS{asn_num}", "sourceapp": _SOURCEAPP}
         logger.info("RIPEStatClient: fetching ASN overview for AS%s", asn_num)
         return self._client.get(url, params=params)
+
+    def get_routing_history(self, resource: str) -> Optional[dict]:
+        """Return bounded-source routing history for an ASN or prefix."""
+        normalized = (
+            f"AS{_normalize_asn(resource)}"
+            if resource.upper().startswith("AS")
+            else resource
+        )
+        url = f"{_RIPE_STAT_BASE}/routing-history/data.json"
+        params = {
+            "resource": normalized,
+            "max_rows": 100,
+            "include_first_hop": "true",
+            "normalise_visibility": "true",
+            "sourceapp": _SOURCEAPP,
+        }
+        logger.info(
+            "RIPEStatClient: fetching routing history for %s",
+            normalized,
+        )
+        return self._client.get(url, params=params)

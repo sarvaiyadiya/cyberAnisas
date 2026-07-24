@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.logger import get_logger
 from app.api.v1.asn import router as asn_router
 from app.api.v1.iot import router as iot_router
+from app.api.v1.wireless import router as wireless_router
 
 logger = get_logger(__name__)
 
@@ -31,6 +32,7 @@ app = FastAPI(
 # ── Register module routers ───────────────────────────────────────────────────
 app.include_router(asn_router, prefix=settings.API_V1_PREFIX)
 app.include_router(iot_router, prefix=settings.API_V1_PREFIX)
+app.include_router(wireless_router, prefix=settings.API_V1_PREFIX)
 
 # Future modules registered here — no changes to existing routes needed:
 # app.include_router(network_recon_router, prefix=settings.API_V1_PREFIX)

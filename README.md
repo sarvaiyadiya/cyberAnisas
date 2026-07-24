@@ -1,8 +1,9 @@
 # ANISAS
 
 ANISAS is a modular network intelligence and security analysis API. The
-current release includes Module 1 ASN intelligence and Module 4 single-IPv4
-surveillance and IoT fingerprinting.
+current release includes Module 1 ASN intelligence, Module 4 single-IPv4
+surveillance and IoT fingerprinting, and Module 5 wireless network
+intelligence.
 
 ## Module 4 runtime flow
 
@@ -41,6 +42,51 @@ Example request:
 
 Optional environment settings include `NVD_API_KEY`,
 `IOT_CVE_MAX_RESULTS`, and `IOT_CACHE_TTL_SECONDS`.
+
+## Module 5 runtime flow
+
+```text
+Local wireless metadata
+→ Access-point enumeration
+→ MAC normalization and local IEEE OUI lookup
+→ Passive client enumeration
+→ Authentication analysis
+→ Historical behavior analysis
+→ Risk assessment
+→ Wireless security report
+```
+
+Module 5 endpoints:
+
+- `POST /api/v1/wireless/access-points`
+- `POST /api/v1/wireless/clients`
+- `POST /api/v1/wireless/authentication`
+- `POST /api/v1/wireless/behavior`
+- `POST /api/v1/wireless/report`
+
+Windows collection uses read-only `netsh` and `arp` commands. Linux collection
+uses read-only `nmcli` and `ip neigh` commands. The module does not connect to
+access points, attempt credentials, capture packets, deauthenticate clients, or
+change MAC addresses.
+
+Behavior analysis accepts previously collected aggregate metadata and uses
+`StandardScaler` with `IsolationForest`. At least five device records are
+required before the model executes.
+
+Download the official IEEE MA-L CSV to:
+
+```text
+backend/app/modules/wireless/data/oui.csv
+```
+
+Official source:
+
+```text
+https://standards-oui.ieee.org/oui/oui.csv
+```
+
+Only assess wireless networks and equipment you own or have explicit
+authorization to test.
 
 ## Verify
 

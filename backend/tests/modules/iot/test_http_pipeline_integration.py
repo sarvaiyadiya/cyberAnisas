@@ -151,6 +151,20 @@ class HTTPPipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["success"])
+        self.assertIsNone(payload["error"])
+        self.assertIn("tcp-connect", payload["metadata"]["sources_used"])
+        self.assertGreaterEqual(payload["metadata"]["confidence_score"], 0.0)
+        self.assertGreaterEqual(payload["metadata"]["lookup_duration_ms"], 0)
+        self.assertTrue(
+            {
+                "asn",
+                "bgp",
+                "ripe",
+                "rpki",
+                "peeringdb",
+                "isp_profile",
+            }.isdisjoint(payload["data"])
+        )
         self.assertEqual(payload["data"]["port_discovery"]["open_ports"], [80])
         observations = payload["data"]["http"]["observations"]
         self.assertGreater(len(observations), 0)
@@ -158,6 +172,13 @@ class HTTPPipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(observations[0]["server"], "nginx")
         self.assertEqual(observations[0]["title"], "Hikvision Camera Console")
         self.assertEqual(observations[0]["x_powered_by"], "PHP/8.2")
+        self.assertEqual(
+            observations[0]["detection_method"],
+            "HTTP Service Enumeration",
+        )
+        self.assertEqual(observations[0]["source"], "http-fingerprint-engine")
+        self.assertGreater(observations[0]["confidence"], 0.0)
+        self.assertTrue(observations[0]["evidence"])
         self.assertIn("PHP", observations[0]["technologies"])
         self.assertEqual(
             observations[0]["security_headers"]["x-frame-options"],
@@ -178,7 +199,31 @@ class HTTPPipelineIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(payload["data"]["firmware"]["firmware"], "Unknown")
         self.assertTrue(payload["data"]["cves"]["lookup_attempted"])
+        self.assertEqual(
+            payload["data"]["capabilities"]["http"]["status"],
+            "executed",
+        )
+        self.assertEqual(
+            payload["data"]["capabilities"]["snmp"]["status"],
+            "not_implemented",
+        )
+        self.assertEqual(
+            payload["data"]["capabilities"]["default_credentials"]["status"],
+            "not_tested",
+        )
         self.assertEqual(payload["data"]["report"]["vendor"], "Hikvision")
+        self.assertEqual(
+            payload["data"]["report"]["manufacturer"],
+            "Hikvision",
+        )
+        self.assertEqual(
+            payload["data"]["report"]["default_credentials_status"],
+            "not_tested",
+        )
+        self.assertEqual(
+            payload["data"]["report"]["end_of_life_status"],
+            "not_assessed",
+        )
         self.assertEqual(payload["data"]["report"]["http_server"], "nginx")
         self.assertEqual(
             payload["data"]["report"]["http_title"],
@@ -253,7 +298,46 @@ class HTTPPipelineIntegrationTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["data"]["open_ports"], [80])
+        payload = response.json()
+        self.assertEqual(payload["data"]["open_ports"], [80])
+        self.assertIsNone(payload["error"])
+        self.assertEqual(payload["metadata"]["sources_used"], ["tcp-connect"])
+        self.assertTrue(
+            {
+                "asn",
+                "bgp",
+                "ripe",
+                "rpki",
+                "peeringdb",
+                "isp_profile",
+            }.isdisjoint(payload["data"])
+        )
+        port_80 = next(
+            item
+            for item in payload["data"]["observations"]
+            if item["port"] == 80
+        )
+        self.assertEqual(port_80["service"], "HTTP")
+        self.assertEqual(port_80["product"], "nginx")
+        self.assertEqual(
+            port_80["detection_method"],
+            "Banner Analysis and Protocol Identification",
+        )
+        self.assertEqual(port_80["source"], "service-detection-engine")
+        self.assertGreater(port_80["confidence"], 0.0)
+        self.assertTrue(port_80["evidence"])
+        self.assertIn("summary", payload["data"])
+        self.assertIn("statistics", payload["data"])
+        self.assertIn("exposure_score", payload["data"])
+        self.assertEqual(payload["data"]["host_status"], "up")
+        self.assertEqual(
+            payload["data"]["capabilities"]["tcp_connect"]["status"],
+            "executed",
+        )
+        self.assertEqual(
+            payload["data"]["statistics"]["total_objects_scanned"],
+            2,
+        )
 
     def test_repeated_identical_scan_is_served_from_cache(self) -> None:
         request = {"ip": "192.168.1.20", "ports": [80]}

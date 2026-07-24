@@ -387,6 +387,12 @@ class ResponseMetadata(BaseModel):
         "MISS",
         description="'HIT' if result came from cache, 'MISS' if freshly computed.",
     )
+    capability_status: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Evidence-based execution state for each Module 1 capability."
+        ),
+    )
 
 
 class AIRiskProfile(BaseModel):
@@ -414,6 +420,117 @@ class AIRiskProfile(BaseModel):
         description="Human-readable indicators that informed the risk classification.",
     )
     summary: str = Field(description="Plain-English intelligence summary. Factual statements only.")
+
+
+class ThreatIntelligence(BaseModel):
+    """Abuse-report evidence from an optional configured provider."""
+
+    status: str = "not_configured"
+    malicious: Optional[bool] = None
+    abuse_confidence_score: Optional[int] = Field(None, ge=0, le=100)
+    total_reports: Optional[int] = Field(None, ge=0)
+    last_reported_at: Optional[str] = None
+    usage_type: Optional[str] = None
+    source: str = "AbuseIPDB"
+    evidence: List[str] = Field(default_factory=list)
+
+
+class ReputationIntelligence(BaseModel):
+    """Multi-engine IP reputation evidence from VirusTotal."""
+
+    status: str = "not_configured"
+    score: Optional[int] = Field(None, ge=0, le=100)
+    classification: str = "unknown"
+    malicious_engines: Optional[int] = Field(None, ge=0)
+    suspicious_engines: Optional[int] = Field(None, ge=0)
+    harmless_engines: Optional[int] = Field(None, ge=0)
+    undetected_engines: Optional[int] = Field(None, ge=0)
+    source: str = "VirusTotal"
+    evidence: List[str] = Field(default_factory=list)
+
+
+class DNSIntelligence(BaseModel):
+    """DNS evidence already observed during the lookup."""
+
+    ptr_hostname: Optional[str] = None
+    registered_domain_hint: Optional[str] = None
+    forward_confirmed: Optional[bool] = None
+    confidence: float = Field(0.0, ge=0, le=1)
+    source: str = "IPInfo/rDNS"
+    evidence: List[str] = Field(default_factory=list)
+
+
+class WHOISIntelligence(BaseModel):
+    """Structured, bounded evidence from an authoritative port-43 query."""
+
+    status: str = "unavailable"
+    server: Optional[str] = None
+    network_name: Optional[str] = None
+    organization: Optional[str] = None
+    country: Optional[str] = None
+    cidrs: List[str] = Field(default_factory=list)
+    network_range: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    abuse_emails: List[str] = Field(default_factory=list)
+    confidence: float = Field(0.0, ge=0, le=1)
+    source: str = "WHOIS port 43"
+    evidence: List[str] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class OrganizationIntelligence(BaseModel):
+    """Normalized organization profile assembled from existing evidence."""
+
+    name: Optional[str] = None
+    network_type: Optional[str] = None
+    website: Optional[str] = None
+    contact_emails: List[str] = Field(default_factory=list)
+    primary_asn: Optional[str] = None
+    related_asns: List[str] = Field(default_factory=list)
+    internet_exchange_count: int = 0
+    confidence: float = Field(0.0, ge=0, le=1)
+    sources: List[str] = Field(default_factory=list)
+
+
+class BGPHealth(BaseModel):
+    """Deterministic routing-health assessment from current BGP evidence."""
+
+    score: int = Field(0, ge=0, le=100)
+    status: str = "unknown"
+    rpki_status: str = "unavailable"
+    announced_prefix_count: int = 0
+    relationship_count: int = 0
+    findings: List[str] = Field(default_factory=list)
+    recommendations: List[str] = Field(default_factory=list)
+    source: str = "ANISAS BGP health rules"
+
+
+class GeolocationConfidence(BaseModel):
+    """Cross-source confidence for country and locality fields."""
+
+    score: float = Field(0.0, ge=0, le=1)
+    country_agreement: Optional[bool] = None
+    evidence: List[str] = Field(default_factory=list)
+    sources: List[str] = Field(default_factory=list)
+
+
+class HistoricalRouting(BaseModel):
+    """Explicit historical-routing capability state."""
+
+    status: str = "not_implemented"
+    events: List[Dict[str, Any]] = Field(default_factory=list)
+    source: Optional[str] = None
+    detail: str = "No historical routing source is configured."
+
+
+class VisualizationData(BaseModel):
+    """Bounded graph-ready representation of current ASN relationships."""
+
+    format: str = "node-edge-v1"
+    nodes: List[Dict[str, Any]] = Field(default_factory=list)
+    edges: List[Dict[str, Any]] = Field(default_factory=list)
+    truncated: bool = False
 
 
 # =============================================================================
@@ -560,6 +677,27 @@ class ASNData(BaseModel):
             "Rule-based NLP risk classification with multi-label network tags. "
             "Based solely on collected public intelligence — no hallucination."
         ),
+    )
+    threat_intelligence: ThreatIntelligence = Field(
+        default_factory=ThreatIntelligence
+    )
+    reputation: ReputationIntelligence = Field(
+        default_factory=ReputationIntelligence
+    )
+    dns_intelligence: DNSIntelligence = Field(default_factory=DNSIntelligence)
+    whois: WHOISIntelligence = Field(default_factory=WHOISIntelligence)
+    organization_intelligence: OrganizationIntelligence = Field(
+        default_factory=OrganizationIntelligence
+    )
+    bgp_health: BGPHealth = Field(default_factory=BGPHealth)
+    geolocation_confidence: GeolocationConfidence = Field(
+        default_factory=GeolocationConfidence
+    )
+    historical_routing: HistoricalRouting = Field(
+        default_factory=HistoricalRouting
+    )
+    visualization: VisualizationData = Field(
+        default_factory=VisualizationData
     )
 
     # ── Data Provenance ───────────────────────────────────────────────────────

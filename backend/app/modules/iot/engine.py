@@ -23,7 +23,7 @@ from app.modules.iot.fingerprints.classifier import DeviceClassificationEngine
 from app.modules.iot.fingerprints.firmware import FirmwareDetectionEngine
 from app.modules.iot.clients.cve_client import CVEIntelligenceClient
 from app.modules.iot.report import InventoryReportEngine
-from app.modules.iot.models import HTTPFingerprintScanResult
+from app.modules.iot.models import HTTPFingerprintScanResult, IoTCapabilityStatus
 
 logger = get_logger(__name__)
 
@@ -189,5 +189,69 @@ class IoTFingerprintEngine:
             risk=risk_result,
             summary=summary_result,
             report=report_result,
+            capabilities=_capability_statuses(),
             duration_ms=duration_ms,
         )
+
+
+def _capability_statuses() -> dict[str, IoTCapabilityStatus]:
+    """Describe executed and unavailable engines without implying detection."""
+    executed = {
+        "tcp_connect": ("Active TCP connect", "Bounded TCP probes executed."),
+        "banner": ("Bounded banner read", "Application banner engine executed."),
+        "http": ("HTTP GET/HEAD", "Safe HTTP fingerprint engine executed."),
+        "tls": ("TLS handshake", "TLS metadata engine executed."),
+        "rtsp": ("RTSP OPTIONS", "RTSP detection engine executed."),
+        "onvif": (
+            "ONVIF device-service probe",
+            "Unauthenticated ONVIF detection engine executed.",
+        ),
+        "service_correlation": (
+            "Evidence correlation",
+            "Port, banner and protocol evidence was correlated.",
+        ),
+    }
+    capabilities = {
+        name: IoTCapabilityStatus(
+            status="executed",
+            detection_method=method,
+            detail=detail,
+        )
+        for name, (method, detail) in executed.items()
+    }
+    unsupported = {
+        "snmp": "SNMP availability/version probing is not implemented.",
+        "upnp": "UPnP discovery is not implemented.",
+        "mdns": "mDNS discovery is not implemented.",
+        "ssdp": "SSDP discovery is not implemented.",
+        "mqtt": "MQTT application handshake detection is not implemented.",
+        "coap": "CoAP detection is not implemented.",
+        "modbus": "Modbus protocol detection is not implemented.",
+        "bacnet": "BACnet protocol detection is not implemented.",
+        "dnp3": "DNP3 protocol detection is not implemented.",
+        "bluetooth": "Bluetooth device discovery is not implemented.",
+    }
+    capabilities.update(
+        {
+            name: IoTCapabilityStatus(
+                status="not_implemented",
+                detection_method="none",
+                detail=detail,
+            )
+            for name, detail in unsupported.items()
+        }
+    )
+    capabilities["default_credentials"] = IoTCapabilityStatus(
+        status="not_tested",
+        detection_method="none",
+        detail="Credentials are not attempted by this safe fingerprint scan.",
+    )
+    capabilities["lifecycle"] = IoTCapabilityStatus(
+        status="not_assessed",
+        detection_method="none",
+        detail=(
+            "End-of-life and end-of-support require authoritative vendor "
+            "lifecycle data."
+        ),
+    )
+    return capabilities

@@ -138,6 +138,10 @@ class HTTPFingerprintEngine:
                 latency_ms=response.latency_ms,
                 tls_validation_failed=response.tls_validation_failed,
                 truncated=response.truncated,
+                evidence=(
+                    f"HTTP status observed: {response.status_code}",
+                ),
+                confidence=0.98,
             )
 
         title, generator, page_text = _html_evidence(response.body, content_type)
@@ -167,6 +171,16 @@ class HTTPFingerprintEngine:
             latency_ms=response.latency_ms,
             tls_validation_failed=response.tls_validation_failed,
             truncated=response.truncated,
+            evidence=tuple(
+                item
+                for item in (
+                    f"HTTP status observed: {response.status_code}",
+                    f"Server header observed: {server}" if server else None,
+                    f"HTML title observed: {title}" if title else None,
+                )
+                if item
+            ),
+            confidence=0.98,
         )
 
 

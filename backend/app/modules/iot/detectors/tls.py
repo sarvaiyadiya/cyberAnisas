@@ -224,6 +224,17 @@ def _parse_certificate(
         vendor_hints=match_vendor_signatures(vendor_text),
         security_issues=security_issues,
         latency_ms=evidence.latency_ms,
+        evidence=tuple(
+            item
+            for item in (
+                f"Negotiated TLS version: {evidence.tls_version}",
+                f"Certificate common name: {common_name}"
+                if common_name
+                else None,
+            )
+            if item
+        ),
+        confidence=0.98,
     )
 
 

@@ -184,6 +184,15 @@ def parse_rtsp_response(
         vendor_hints=match_vendor_signatures(evidence_text),
         latency_ms=latency_ms,
         truncated=truncated,
+        evidence=tuple(
+            item
+            for item in (
+                f"RTSP status observed: {status_code}",
+                f"RTSP Server header: {server}" if server else None,
+            )
+            if item
+        ),
+        confidence=0.98,
     )
 
 

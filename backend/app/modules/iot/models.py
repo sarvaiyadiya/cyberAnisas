@@ -13,6 +13,9 @@ from pydantic import (
     model_validator,
 )
 
+from app.core.api_models import ResponseMetadata
+from app.core.api_models import FindingRisk, ScanStatistics, ScanSummary
+
 
 class PortState(str, Enum):
     """Observable TCP port states produced by the discovery engine."""
@@ -21,6 +24,16 @@ class PortState(str, Enum):
     CLOSED = "closed"
     FILTERED = "filtered"
     ERROR = "error"
+
+
+class IoTCapabilityStatus(BaseModel):
+    """Execution state for one fingerprint or protocol capability."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: str
+    detection_method: str
+    detail: str
 
 
 class PortObservation(BaseModel):
@@ -32,6 +45,21 @@ class PortObservation(BaseModel):
     state: PortState
     latency_ms: float | None = Field(default=None, ge=0)
     error: str | None = None
+    protocol: str = "TCP"
+    service: str = "Unknown"
+    banner: str | None = None
+    version: str | None = None
+    product: str | None = None
+    tls_support: bool = False
+    known_cves: tuple[str, ...] = ()
+    default_credentials_risk: str = "not_tested"
+    exploit_risk: str = "Unknown"
+    service_fingerprint: str | None = None
+    evidence: tuple[str, ...] = ()
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    detection_method: str = "Active Scan"
+    source: str = "tcp-connect"
+    risk: FindingRisk = Field(default_factory=FindingRisk)
 
 
 class PortDiscoveryResult(BaseModel):
@@ -44,6 +72,18 @@ class PortDiscoveryResult(BaseModel):
     observations: tuple[PortObservation, ...] = ()
     scanned_port_count: int = Field(ge=0)
     duration_ms: float = Field(ge=0)
+    closed_ports: tuple[int, ...] = ()
+    filtered_ports: tuple[int, ...] = ()
+    unknown_ports: tuple[int, ...] = ()
+    exposure_score: int = Field(default=0, ge=0, le=100)
+    network_risk: str = "Unknown"
+    recommendations: tuple[str, ...] = ()
+    summary: ScanSummary = Field(default_factory=ScanSummary)
+    statistics: ScanStatistics = Field(default_factory=ScanStatistics)
+    host_status: str = "unknown"
+    capabilities: dict[str, IoTCapabilityStatus] = Field(
+        default_factory=dict
+    )
 
     @field_validator("target")
     @classmethod
@@ -71,6 +111,10 @@ class BannerObservation(BaseModel):
     truncated: bool = False
     responded: bool = False
     error: str | None = None
+    evidence: tuple[str, ...] = ()
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    detection_method: str = "Banner Analysis"
+    source: str = "banner-fingerprint-engine"
 
 
 class BannerDiscoveryResult(BaseModel):
@@ -94,6 +138,8 @@ class ServiceObservation(BaseModel):
     product: str | None = None
     confidence: int = Field(ge=0, le=100)
     evidence: tuple[str, ...] = ()
+    detection_method: str = "Protocol Identification"
+    source: str = "service-detection-engine"
 
 
 class ServiceDetectionResult(BaseModel):
@@ -136,6 +182,10 @@ class HTTPObservation(BaseModel):
     tls_validation_failed: bool = False
     truncated: bool = False
     error: str | None = None
+    evidence: tuple[str, ...] = ()
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    detection_method: str = "HTTP Service Enumeration"
+    source: str = "http-fingerprint-engine"
 
 
 class HTTPFingerprintResult(BaseModel):
@@ -173,6 +223,10 @@ class TLSObservation(BaseModel):
     security_issues: tuple[str, ...] = ()
     latency_ms: float | None = Field(default=None, ge=0)
     error: str | None = None
+    evidence: tuple[str, ...] = ()
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    detection_method: str = "TLS Handshake"
+    source: str = "tls-fingerprint-engine"
 
 
 class TLSFingerprintResult(BaseModel):
@@ -203,6 +257,8 @@ class VendorDetectionResult(BaseModel):
     confidence: int = Field(default=0, ge=0, le=100)
     matching_evidence: tuple[str, ...] = ()
     alternative_vendors: tuple[VendorAlternative, ...] = ()
+    detection_method: str = "Signature Matching"
+    source: str = "vendor-correlation-engine"
 
 
 class RTSPObservation(BaseModel):
@@ -221,6 +277,10 @@ class RTSPObservation(BaseModel):
     latency_ms: float | None = Field(default=None, ge=0)
     truncated: bool = False
     error: str | None = None
+    evidence: tuple[str, ...] = ()
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    detection_method: str = "RTSP OPTIONS"
+    source: str = "rtsp-detection-engine"
 
 
 class RTSPDetectionResult(BaseModel):
@@ -257,6 +317,10 @@ class ONVIFObservation(BaseModel):
     vendor_hints: tuple[str, ...] = ()
     latency_ms: float | None = Field(default=None, ge=0)
     error: str | None = None
+    evidence: tuple[str, ...] = ()
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    detection_method: str = "ONVIF Device-Service Probe"
+    source: str = "onvif-detection-engine"
 
 
 class ONVIFDetectionResult(BaseModel):
@@ -289,6 +353,8 @@ class DeviceClassificationResult(BaseModel):
     alternatives: tuple[ClassificationAlternative, ...] = ()
     evidence: tuple[str, ...] = ()
     explanation: str = "Insufficient evidence for a reliable classification."
+    detection_method: str = "Weighted Evidence Correlation"
+    source: str = "device-classification-engine"
 
 
 class FirmwareDetectionResult(BaseModel):
@@ -300,6 +366,8 @@ class FirmwareDetectionResult(BaseModel):
     firmware: str = "Unknown"
     confidence: int = Field(default=0, ge=0, le=100)
     evidence: tuple[str, ...] = ()
+    detection_method: str = "Banner and HTTP Signature Matching"
+    source: str = "firmware-detection-engine"
 
 
 class CVERecord(BaseModel):
@@ -314,6 +382,8 @@ class CVERecord(BaseModel):
     description: str
     reference: str | None = None
     match_quality: str
+    detection_method: str = "CVE Database Correlation"
+    source: str = "NVD"
 
 
 class CVEIntelligenceResult(BaseModel):
@@ -339,6 +409,9 @@ class RiskFactor(BaseModel):
     points: int = Field(ge=0, le=100)
     evidence: str
     recommendation: str
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    detection_method: str = "Deterministic Evidence Correlation"
+    source: str = "iot-risk-assessment-engine"
 
 
 class RiskAssessmentResult(BaseModel):
@@ -373,9 +446,20 @@ class DeviceInventoryReport(BaseModel):
     device_type: str
     classification_confidence: int = Field(ge=0, le=100)
     vendor: str
+    manufacturer: str = "Unknown"
     vendor_confidence: int = Field(ge=0, le=100)
+    product: str = "Unknown"
     model: str
     firmware: str
+    operating_system: str = "Unknown"
+    device_generation: str = "Unknown"
+    device_capabilities: tuple[str, ...] = ()
+    supported_protocols: tuple[str, ...] = ()
+    iot_platform: str = "Unknown"
+    smart_home_ecosystem: str = "Unknown"
+    default_credentials_status: str = "not_tested"
+    end_of_life_status: str = "not_assessed"
+    end_of_support_status: str = "not_assessed"
     open_ports: tuple[int, ...] = ()
     services: tuple[str, ...] = ()
     http_titles: tuple[str, ...] = ()
@@ -390,6 +474,7 @@ class DeviceInventoryReport(BaseModel):
     known_cves: tuple[CVERecord, ...] = ()
     risk_score: int = Field(ge=0, le=100)
     risk_level: str
+    recommendations: tuple[str, ...] = ()
     summary: str
 
 
@@ -413,6 +498,9 @@ class HTTPFingerprintScanResult(BaseModel):
     risk: RiskAssessmentResult
     summary: SecuritySummaryResult
     report: DeviceInventoryReport
+    capabilities: dict[str, IoTCapabilityStatus] = Field(
+        default_factory=dict
+    )
     cache_status: str = "MISS"
     duration_ms: float = Field(ge=0)
 
@@ -491,6 +579,8 @@ class IoTPortDiscoveryResponse(BaseModel):
     success: bool
     message: str
     data: PortDiscoveryResult
+    error: str | None = None
+    metadata: ResponseMetadata
 
 
 class IoTHTTPFingerprintResponse(BaseModel):
@@ -499,3 +589,5 @@ class IoTHTTPFingerprintResponse(BaseModel):
     success: bool
     message: str
     data: HTTPFingerprintScanResult
+    error: str | None = None
+    metadata: ResponseMetadata

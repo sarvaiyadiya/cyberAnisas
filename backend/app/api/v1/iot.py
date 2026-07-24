@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.logger import get_logger
+from app.core.api_models import ResponseMetadata
 from app.modules.iot.exceptions import (
     InvalidTargetError,
     PortDiscoveryError,
@@ -66,6 +67,13 @@ def fingerprint_iot_http(
         success=True,
         message="Surveillance and IoT fingerprinting completed",
         data=result,
+        metadata=ResponseMetadata(
+            sources_used=_fingerprint_sources(result),
+            confidence_score=_fingerprint_confidence(result),
+            lookup_duration_ms=round(result.duration_ms),
+            detection_engine="ANISAS IoT Fingerprint Pipeline",
+            scan_mode="active-bounded",
+        ),
     )
 
 
@@ -109,4 +117,46 @@ def discover_iot_ports(
         success=True,
         message="TCP port discovery completed",
         data=result,
+        metadata=ResponseMetadata(
+            sources_used=("tcp-connect",),
+            confidence_score=_port_discovery_confidence(result),
+            lookup_duration_ms=round(result.duration_ms),
+            detection_engine="ANISAS IoT Service Discovery",
+            scan_mode="active-bounded",
+        ),
     )
+
+
+def _port_discovery_confidence(result) -> float:
+    """Return the proportion of probes that produced a known TCP state."""
+    if not result.observations:
+        return 0.0
+    known = sum(item.state.value != "error" for item in result.observations)
+    return round(known / len(result.observations), 3)
+
+
+def _fingerprint_sources(result) -> tuple[str, ...]:
+    """Describe engines that produced or attempted bounded evidence."""
+    sources = [
+        "tcp-connect",
+        "banner-grab",
+        "http",
+        "tls-certificate",
+        "rtsp-options",
+        "onvif-device-service",
+        "rule-correlation",
+    ]
+    if result.cves.lookup_attempted:
+        sources.append(result.cves.source)
+    return tuple(sources)
+
+
+def _fingerprint_confidence(result) -> float:
+    """Aggregate only confidence values emitted by evidence engines."""
+    values = (
+        result.vendor.confidence,
+        result.classification.confidence,
+        result.firmware.confidence,
+        result.risk.assessment_confidence,
+    )
+    return round(sum(values) / (len(values) * 100), 3)

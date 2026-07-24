@@ -110,6 +110,23 @@ class ONVIFDetectionEngine:
             authentication_required=authentication_required,
             vendor_hints=match_vendor_signatures(evidence_text),
             latency_ms=response.latency_ms,
+            evidence=tuple(
+                item
+                for item in (
+                    f"ONVIF endpoint HTTP status: {response.status_code}",
+                    "ONVIF SOAP signature observed" if soap_response else None,
+                )
+                if item
+            ),
+            confidence=(
+                0.98
+                if status
+                in {
+                    ONVIFStatus.DETECTED,
+                    ONVIFStatus.AUTHENTICATION_REQUIRED,
+                }
+                else 0.5
+            ),
         )
 
 

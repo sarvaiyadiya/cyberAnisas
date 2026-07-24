@@ -20,6 +20,7 @@ from app.modules.iot.models import (
     PortObservation,
     PortState,
 )
+from app.core.api_models import ScanStatistics, ScanSummary
 from app.modules.iot.utils import normalize_ports, validate_ipv4
 
 logger = get_logger(__name__)
@@ -141,6 +142,46 @@ class PortDiscoveryEngine:
             observations=tuple(observations),
             scanned_port_count=len(normalized_ports),
             duration_ms=duration_ms,
+            closed_ports=tuple(
+                item.port
+                for item in observations
+                if item.state is PortState.CLOSED
+            ),
+            filtered_ports=tuple(
+                item.port
+                for item in observations
+                if item.state is PortState.FILTERED
+            ),
+            unknown_ports=tuple(
+                item.port
+                for item in observations
+                if item.state is PortState.ERROR
+            ),
+            summary=ScanSummary(
+                total_findings=len(open_ports),
+                important_findings=len(open_ports),
+                high_risk_findings=0,
+                conclusion=(
+                    f"TCP discovery identified {len(open_ports)} open port(s) "
+                    f"from {len(normalized_ports)} attempted probes."
+                ),
+            ),
+            statistics=ScanStatistics(
+                total_objects_scanned=len(normalized_ports),
+                successful_detections=len(open_ports),
+                failed_detections=sum(
+                    item.state is PortState.ERROR for item in observations
+                ),
+                elapsed_scan_ms=duration_ms,
+            ),
+            host_status=(
+                "up"
+                if any(
+                    item.state in {PortState.OPEN, PortState.CLOSED}
+                    for item in observations
+                )
+                else "unknown"
+            ),
         )
 
     def _scan_port(self, target: str, port: int) -> PortObservation:
@@ -154,6 +195,8 @@ class PortDiscoveryEngine:
             port=port,
             state=state,
             latency_ms=latency_ms,
+            evidence=(f"TCP connect state: {state.value}",),
+            confidence=0.95 if state is not PortState.ERROR else 0.0,
         )
 
 

@@ -131,6 +131,12 @@ class BannerFingerprintEngine:
             bytes_received=len(bounded_payload),
             truncated=truncated,
             responded=bool(payload),
+            evidence=(
+                (f"Received {len(bounded_payload)} banner byte(s)",)
+                if payload
+                else ()
+            ),
+            confidence=0.95 if payload else 0.0,
         )
 
 

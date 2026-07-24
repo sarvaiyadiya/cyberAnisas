@@ -37,6 +37,8 @@ class Settings:
     # PeeringDB works without auth but rate-limits are higher with a token.
     PEERINGDB_TOKEN: str | None = os.getenv("PEERINGDB_TOKEN") or None
     NVD_API_KEY: str | None = os.getenv("NVD_API_KEY") or None
+    ABUSEIPDB_API_KEY: str | None = os.getenv("ABUSEIPDB_API_KEY") or None
+    VIRUSTOTAL_API_KEY: str | None = os.getenv("VIRUSTOTAL_API_KEY") or None
 
     # ── Caching ───────────────────────────────────────────────────────────────
     # How long (seconds) a completed ASN lookup is held in the in-memory cache.

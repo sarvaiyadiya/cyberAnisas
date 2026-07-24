@@ -55,6 +55,19 @@ from app.modules.asn.clients.bgpview import BGPViewClient
 from app.modules.asn.clients.peeringdb import PeeringDBClient
 from app.modules.asn.clients.cymru import CymruClient
 from app.modules.asn.clients.ripe_stat import RIPEStatClient
+from app.modules.asn.clients.threat_intel import (
+    AbuseIPDBClient,
+    VirusTotalClient,
+)
+from app.modules.asn.clients.whois import WHOISClient
+from app.modules.asn.enrichment import (
+    build_bgp_health,
+    build_dns_intelligence,
+    build_geolocation_confidence,
+    build_historical_routing,
+    build_organization_intelligence,
+    build_visualization,
+)
 
 # ── Parsers ───────────────────────────────────────────────────────────────────
 from app.modules.asn.parsers.ipinfo_parser import IPInfoParser
@@ -73,6 +86,9 @@ _bgpview_client = BGPViewClient()
 _peeringdb_client = PeeringDBClient()
 _cymru_client = CymruClient()
 _ripe_stat_client = RIPEStatClient()
+_abuseipdb_client = AbuseIPDBClient()
+_virustotal_client = VirusTotalClient()
+_whois_client = WHOISClient()
 
 # ── TTL cache ─────────────────────────────────────────────────────────────────
 _cache: TTLCache = TTLCache(ttl_seconds=settings.CACHE_TTL_SECONDS)
@@ -276,6 +292,29 @@ def get_asn_information(ip: str) -> ASNData:
     # =========================================================================
     # SOURCE 4 — BGPView  (requires ASN)
     # =========================================================================
+    whois_server = result.whois_server or {
+        "ARIN": "whois.arin.net",
+        "RIPE NCC": "whois.ripe.net",
+        "RIPE": "whois.ripe.net",
+        "APNIC": "whois.apnic.net",
+        "LACNIC": "whois.lacnic.net",
+        "AFRINIC": "whois.afrinic.net",
+    }.get((result.registry or "").upper())
+    result.whois = _whois_client.lookup(whois_server, ip)
+    if result.whois.status in {"available", "no_structured_data"}:
+        sources_queried.append("WHOIS")
+        _prov(provenance, "whois", result.whois.source, True)
+        if result.whois.organization and not result.organization:
+            result.organization = result.whois.organization
+            _prov(
+                provenance,
+                "organization",
+                result.whois.source,
+                result.whois.organization,
+            )
+        if result.whois.abuse_emails and not rdap_abuse_email:
+            rdap_abuse_email = result.whois.abuse_emails[0]
+
     bgpview_prefix_success = False
     bgpview_rel_success = False
 
@@ -618,6 +657,18 @@ def get_asn_information(ip: str) -> ASNData:
             _prov(provenance, "isp_profile.noc_email", "RDAP", rdap_noc_email)
             _prov(provenance, "isp_profile.abuse_email", "RDAP", rdap_abuse_email)
             logger.info("ISP profile: built from RDAP contacts (PeeringDB unavailable)")
+        else:
+            result.isp_profile = ISPProfile(
+                internet_exchanges=PaginatedList(
+                    count=0,
+                    sample=[],
+                    complete_available=True,
+                ),
+                profile_sources=[],
+            )
+            logger.info(
+                "ISP profile: no contact or PeeringDB evidence was available"
+            )
 
         # Always ensure multi_asn is a structured object (Task 2)
         result.multi_asn = _build_multi_asn(
@@ -650,6 +701,54 @@ def get_asn_information(ip: str) -> ASNData:
         )
     except Exception as exc:  # noqa: BLE001
         logger.error("AI Risk: failed to compute for %s — %s", ip, exc)
+
+    result.threat_intelligence = _abuseipdb_client.lookup(ip)
+    if result.threat_intelligence.status == "available":
+        sources_queried.append("AbuseIPDB")
+        _prov(provenance, "threat_intelligence", "AbuseIPDB", True)
+
+    result.reputation = _virustotal_client.lookup(ip)
+    if result.reputation.status == "available":
+        sources_queried.append("VirusTotal")
+        _prov(provenance, "reputation", "VirusTotal", True)
+
+    result.dns_intelligence = build_dns_intelligence(result)
+    result.organization_intelligence = build_organization_intelligence(result)
+    result.bgp_health = build_bgp_health(result)
+    result.geolocation_confidence = build_geolocation_confidence(result)
+    result.visualization = build_visualization(result)
+    if asn:
+        result.historical_routing = build_historical_routing(
+            _ripe_stat_client.get_routing_history(asn)
+        )
+        if result.historical_routing.status == "available":
+            if "RIPE STAT" not in sources_queried:
+                sources_queried.append("RIPE STAT")
+            _prov(
+                provenance,
+                "historical_routing",
+                "RIPE STAT Routing History",
+                result.historical_routing.events,
+            )
+    _prov(
+        provenance,
+        "dns_intelligence",
+        result.dns_intelligence.source,
+        result.dns_intelligence.ptr_hostname,
+    )
+    _prov(provenance, "bgp_health", "derived", result.bgp_health.status)
+    _prov(
+        provenance,
+        "geolocation_confidence",
+        "derived",
+        result.geolocation_confidence.evidence,
+    )
+    _prov(
+        provenance,
+        "visualization",
+        "derived",
+        result.visualization.nodes,
+    )
 
     # =========================================================================
     # Finalize
@@ -859,6 +958,10 @@ def _build_metadata(
         ("organization", data.organization),
         ("country", data.country),
         ("hostname", data.hostname),
+        (
+            "whois",
+            data.whois if data.whois.status == "available" else None,
+        ),
         ("city", data.city),
         ("registry", data.registry),
         ("whois_server", data.whois_server),
@@ -874,10 +977,71 @@ def _build_metadata(
         ("prefix_count", data.prefix_count or None),
         ("announced_prefixes", data.announced_prefixes),
         ("rpki", data.rpki),
-        ("isp_profile", data.isp_profile),
+        (
+            "isp_profile",
+            data.isp_profile
+            if data.isp_profile
+            and any(
+                (
+                    data.isp_profile.website,
+                    data.isp_profile.noc_email,
+                    data.isp_profile.abuse_email,
+                    data.isp_profile.support_email,
+                    data.isp_profile.peering_policy,
+                    data.isp_profile.info_type,
+                    data.isp_profile.internet_exchanges.count,
+                )
+            )
+            else None,
+        ),
         ("relationships", data.relationships),
         ("multi_asn", data.multi_asn if (data.multi_asn and data.multi_asn.primary_asn) else None),
         ("ai_risk", data.ai_risk),
+        (
+            "threat_intelligence",
+            data.threat_intelligence
+            if data.threat_intelligence.status == "available"
+            else None,
+        ),
+        (
+            "reputation",
+            data.reputation if data.reputation.status == "available" else None,
+        ),
+        (
+            "dns_intelligence",
+            data.dns_intelligence
+            if data.dns_intelligence.ptr_hostname
+            else None,
+        ),
+        (
+            "organization_intelligence",
+            data.organization_intelligence
+            if data.organization_intelligence.name
+            else None,
+        ),
+        (
+            "bgp_health",
+            data.bgp_health
+            if data.bgp_health.announced_prefix_count
+            or data.bgp_health.rpki_status not in {"unknown", "unavailable"}
+            else None,
+        ),
+        (
+            "geolocation_confidence",
+            data.geolocation_confidence
+            if data.geolocation_confidence.evidence
+            else None,
+        ),
+        (
+            "historical_routing",
+            data.historical_routing
+            if data.historical_routing.status == "available"
+            else None,
+        ),
+        (
+            "visualization",
+            data.visualization if data.visualization.nodes else None,
+        ),
     ]
 
     completed: list[str] = []
@@ -930,7 +1094,7 @@ def _build_metadata(
 
     # Cross-validation (5%): ASN confirmed by ≥2 independent source families
     # IPInfo + RDAP, or IPInfo + RIPE STAT, or Cymru + RDAP, etc.
-    rir_sources = {"RDAP", "TeamCymru"}
+    rir_sources = {"RDAP", "TeamCymru", "WHOIS"}
     bgp_sources_set = {"BGPView", "RIPE STAT"}
     ip_sources = {"IPInfo"}
     source_set = set(sources)
@@ -970,6 +1134,64 @@ def _build_metadata(
         lookup_duration_ms=elapsed_ms,
         generated_at=datetime.datetime.utcnow().isoformat() + "Z",
         cache_status=cache_status,
+        capability_status={
+            "ip_identity": "complete" if data.ip else "missing",
+            "rdap": "complete" if data.network_handle else "unavailable",
+            "whois": data.whois.status,
+            "asn_lookup": "complete" if data.asn else "unavailable",
+            "bgp_intelligence": (
+                "complete" if data.origin_asn else "unavailable"
+            ),
+            "prefix_intelligence": (
+                "complete" if data.announced_prefixes else "unavailable"
+            ),
+            "rpki": (
+                "complete"
+                if data.rpki
+                and data.rpki.status not in {"unknown", "unavailable"}
+                else "unavailable"
+            ),
+            "relationships": (
+                "complete" if data.relationships else "unavailable"
+            ),
+            "multi_asn": (
+                "complete" if data.multi_asn.primary_asn else "unavailable"
+            ),
+            "ai_risk": "complete" if data.ai_risk else "unavailable",
+            "isp_profile": (
+                "complete" if "isp_profile" in completed else "no_evidence"
+            ),
+            "threat_intelligence": data.threat_intelligence.status,
+            "reputation": data.reputation.status,
+            "peeringdb_deep_data": (
+                "complete"
+                if data.isp_profile
+                and "PeeringDB" in data.isp_profile.profile_sources
+                else "unavailable"
+            ),
+            "historical_routing": data.historical_routing.status,
+            "dns_intelligence": (
+                "partial" if data.dns_intelligence.ptr_hostname else "unavailable"
+            ),
+            "organization_intelligence": (
+                "complete"
+                if data.organization_intelligence.confidence >= 0.75
+                else "partial"
+                if data.organization_intelligence.name
+                else "unavailable"
+            ),
+            "bgp_health": data.bgp_health.status,
+            "geolocation_confidence": (
+                "complete"
+                if data.geolocation_confidence.score >= 0.7
+                else "partial"
+                if data.geolocation_confidence.evidence
+                else "unavailable"
+            ),
+            "visualization_support": (
+                "complete" if data.visualization.nodes else "unavailable"
+            ),
+        },
     )
 
 
